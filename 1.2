@@ -1,0 +1,489 @@
+#include<graphics.h>
+#include<string>
+#include<iostream>
+#include<vector>
+#include<math.h>
+using namespace std;
+#pragma comment(lib,"MSIMG32.LIB")
+int ans = 0;
+const int FPS = 144;//帧率
+const int NUMS = 6;//帧率
+const int button_gamebegin_x = 550;//开始游戏按钮坐标
+const int button_gamebegin_y = 400;
+const int button_gameexit_x = 550;//退出游戏按钮坐标
+const int button_gameexit_y = 500;
+int player_x = 0;//玩家x坐标
+int player_y = 400;//玩家y坐标
+int player_speed = 3;//玩家奔跑速度
+int scene_now = 3;//目前在哪一幕
+int idx_play = 0;//动画帧
+int last_fx = 0;//最近的一次朝向
+bool running = true;
+ExMessage msg;
+IMAGE button_game_begin;
+IMAGE button_game_exit;
+IMAGE player;
+IMAGE ui_background;//主菜单背景
+IMAGE atlas_player_stand_right[NUMS];//玩家站立朝右图集
+IMAGE atlas_player_stand_left[NUMS];//玩家站立朝左图集
+IMAGE atlas_player_run_right[NUMS];//玩家奔跑朝右图集
+IMAGE atlas_player_run_left[NUMS];//玩家奔跑朝左图集
+IMAGE atlas_enemy_right[NUMS];//敌人朝右奔跑图集
+IMAGE atlas_enemy_left[NUMS];//敌人朝左奔跑图集
+IMAGE atlas_speak[NUMS];//对话图集
+IMAGE speak;
+IMAGE white_all;
+class CIRCLE_GOD {
+public:
+	CIRCLE_GOD() = default;
+	~CIRCLE_GOD() = default;
+	void o_draw() {
+		circle(o_x, o_y, r);
+	}
+	void Do_attack() {
+		if (fx_attack) {
+			o_x -= o_speed;
+		}
+		else {
+			o_x += o_speed;
+		}
+		o_attack_dist++;
+		if (o_attack_dist >15) {
+			
+			attack_form = 2;
+		}
+	}
+	void With(int x,int y,int fx) {
+		if (fx) {
+			o_x = x;
+			o_y = y + 50;
+		}
+		else {
+			o_x = x + 80;
+			o_y = y + 50;
+		}
+	}
+	void Back(int x,int y) {
+		int dir_x = x - o_x;
+		int dir_y = y - o_y;
+		double len_dir = sqrt(dir_x * dir_x + dir_y * dir_y);
+		if (len_dir > 50) {
+			double normalized_x = dir_x / len_dir;
+			double normalized_y = dir_y / len_dir;
+			o_x += (int)(5 * normalized_x);
+			o_y += (int)(5 * normalized_y);
+		}
+		else {
+			attack_form = 0;
+			o_attack_dist = 0;
+		}
+	}
+public:
+	int o_form = 0;//圆当前形态
+	int o_x;
+	int o_y;
+	int r = 15;
+	int o_speed = 5;
+	int o_attack_dist = 0;
+	int attack_form = 0;
+	bool fx_attack = false;
+};
+inline void putimage_alpha(int x, int y, IMAGE* img) {//能处理透明背景的渲染函数
+	int w = img->getwidth();
+	int h = img->getheight();
+	AlphaBlend(GetImageHDC(NULL), x, y, w, h,
+		GetImageHDC(img), 0, 0, w, h, { AC_SRC_OVER,0,255,AC_SRC_ALPHA });
+}
+void loadall() {
+	AddFontResourceEx(_T("img/IPix.ttf"), FR_PRIVATE, NULL);
+	loadimage(&button_game_begin, _T("img/ui_begin.png"), 192, 75);
+	loadimage(&button_game_exit, _T("img/ui_exit.png"), 192, 75);
+	loadimage(&ui_background, _T("img/ui_background.png"), 1280, 720);
+	loadimage(&player, _T("img/player.png"), 200, 200);
+	loadimage(&speak, _T("img/speak.png"), 1200, 200);
+	loadimage(&white_all, _T("img/speak.png"), 1280, 720);
+	for (int i = 0; i < NUMS; i++) {
+		static TCHAR img_path[256];
+		_stprintf_s(img_path, _T("img/player_left_%d.png"), i);
+		loadimage(&atlas_player_stand_left[i], img_path);
+	}
+	for (int i = 0; i < NUMS; i++) {
+		int width = atlas_player_stand_left[i].getwidth();
+		int height = atlas_player_stand_left[i].getheight();
+		Resize(&atlas_player_stand_right[i], width, height);
+		DWORD* color_buffer_left = GetImageBuffer(&atlas_player_stand_left[i]);
+		DWORD* color_buffer_right = GetImageBuffer(&atlas_player_stand_right[i]);
+		for (int yy = 0; yy < height; yy++) {
+			for (int xx = 0; xx < width; xx++) {
+				int idx_left = yy * width + xx;
+				int idx_right = yy * width + (width - xx - 1);
+				color_buffer_right[idx_right] = color_buffer_left[idx_left];
+			}
+		}
+	}
+	for (int i = 0; i < NUMS; i++) {
+		static TCHAR img_path[256];
+		_stprintf_s(img_path, _T("img/player_run_left_%d.png"), i);
+		loadimage(&atlas_player_run_left[i], img_path);
+	}
+	for (int i = 0; i < NUMS; i++) {
+		int width = atlas_player_run_left[i].getwidth();
+		int height = atlas_player_run_left[i].getheight();
+		Resize(&atlas_player_run_right[i], width, height);
+		DWORD* color_buffer_left = GetImageBuffer(&atlas_player_run_left[i]);
+		DWORD* color_buffer_right = GetImageBuffer(&atlas_player_run_right[i]);
+		for (int yy = 0; yy < height; yy++) {
+			for (int xx = 0; xx < width; xx++) {
+				int idx_left = yy * width + xx;
+				int idx_right = yy * width + (width - xx - 1);
+				color_buffer_right[idx_right] = color_buffer_left[idx_left];
+			}
+		}
+	}
+	for (int i = 0; i < NUMS; i++) {
+		static TCHAR img_path[256];
+		_stprintf_s(img_path, _T("img/enemy_left_%d.png"), i);
+		loadimage(&atlas_enemy_left[i], img_path);
+		int width = atlas_enemy_left[i].getwidth();
+		int height = atlas_enemy_left[i].getheight();
+		Resize(&atlas_enemy_right[i], width, height);
+		DWORD* color_buffer_left = GetImageBuffer(&atlas_enemy_left[i]);
+		DWORD* color_buffer_right = GetImageBuffer(&atlas_enemy_right[i]);
+		for (int yy = 0; yy < height; yy++) {
+			for (int xx = 0; xx < width; xx++) {
+				int idx_left = yy * width + xx;
+				int idx_right = yy * width + (width - xx - 1);
+				color_buffer_right[idx_right] = color_buffer_left[idx_left];
+			}
+		}
+	}
+
+}
+int main() {
+	CIRCLE_GOD oo;//要在主循环外面实例化对象，惨痛的教训QAQ
+	loadall();
+	initgraph(1280, 720);
+	settextstyle(28, 0, _T("IPix"));
+	setbkmode(TRANSPARENT);
+	BeginBatchDraw();
+	while (running) {
+		DWORD frame_strat_time = GetTickCount();
+		if (scene_now == 0) {//主菜单场景
+			static bool is_begin_down = false;
+			static bool is_exit_down = false;
+			while (peekmessage(&msg)) {
+				if (msg.message == WM_LBUTTONDOWN) {//如果按下就标记
+					if (msg.x > button_gamebegin_x - 5 && msg.x < button_gamebegin_x + 205 && msg.y > button_gamebegin_y - 5 && msg.y < button_gamebegin_y + 55) {
+						is_begin_down = true;
+					}
+					if (msg.x > button_gameexit_x - 5 && msg.x < button_gameexit_x + 205 && msg.y > button_gameexit_y - 5 && msg.y < button_gameexit_y + 55) {
+						is_exit_down = true;
+					}
+				}
+				else if (msg.message == WM_LBUTTONUP) {//如果松开并且已经有标记就进入下一个场景，即按下开始游戏按钮
+					if (msg.x > button_gamebegin_x - 5 && msg.x < button_gamebegin_x + 205 && msg.y > button_gamebegin_y - 5 && msg.y < button_gamebegin_y + 55) {
+						if (is_begin_down) {
+							scene_now = 1;
+							break;
+						}
+					}
+					if (msg.x > button_gameexit_x - 5 && msg.x < button_gameexit_x + 205 && msg.y > button_gameexit_y - 5 && msg.y < button_gameexit_y + 55) {
+						if (is_exit_down) {
+							running = false;
+							break;
+						}
+					}
+				}
+			}
+			cleardevice();
+			putimage_alpha(0, 0, &ui_background);//画背景
+			putimage_alpha(button_gamebegin_x, button_gamebegin_y, &button_game_begin);//画开始游戏按钮图像
+			putimage_alpha(button_gameexit_x, button_gameexit_y, &button_game_exit);//画退出游戏按钮图像
+			FlushBatchDraw();
+		}
+		else if (scene_now == 1) {//第一幕：实现对话，跳跃，奔跑
+			static bool is_left = false;
+			static bool is_right = false;
+			static int is_jump = 0;
+			DWORD frame_strat_time = GetTickCount();
+			while (peekmessage(&msg)) {
+				if (msg.message == WM_KEYDOWN) {
+					if (msg.vkcode == 0x41) {
+						is_left = true;
+					}
+					else if (msg.vkcode == 0x44) {
+						is_right = true;
+					}
+					else if (msg.vkcode == VK_SPACE && is_jump == 0) {
+						is_jump = 31;
+					}
+				}
+				else if (msg.message == WM_KEYUP) {
+					if (msg.vkcode == 0x41) {
+						is_left = false;
+					}
+					else if (msg.vkcode == 0x44) {
+						is_right = false;
+					}
+				}
+			}
+			if (is_left) {
+				player_x -= player_speed;
+				if (player_x < -50)player_x = -50;
+				last_fx = 1;
+			}
+			if (is_right) {
+				player_x += player_speed;
+				last_fx = 0;
+				if (player_x > 1280) {
+					player_x = -50;
+					scene_now = 2;
+				}
+			}
+			if (is_jump) {//跳跃
+				player_y -= is_jump - 16;
+				is_jump--;
+			}
+			static int counter = 0;
+			if (++counter % 5 == 0) {//更新程序帧以及动画帧
+				idx_play++;
+			}
+			idx_play %= NUMS;
+			cleardevice();
+			line(0, 480, 1280, 480);
+			if (last_fx) {
+				putimage_alpha(player_x, player_y, &atlas_player_stand_left[idx_play]);
+			}
+			else {
+				putimage_alpha(player_x, player_y, &atlas_player_stand_right[idx_play]);
+			}
+			FlushBatchDraw();
+		}
+		else if (scene_now == 2) {//对话，得到武器：圆
+			static bool is_tonext = false;
+			static bool is_o_besave = false;
+			static int o_x = 1150;
+			static int o_y = 320;
+			static int o_r = 15;
+			static bool o_fx = false;
+			cleardevice();
+			/*settextcolor(white);
+			outtextxy(20, 520, _t("神秘人: "));
+			int text_x = 20, text_y = 550;
+			if (text_y > 1200) {
+				text_x += 40;
+				text_y = 550;
+			}
+			outtextxy(text_x, text_y, _t("你好"));*/
+			static bool is_left = false;
+			static bool is_right = false;
+			static int is_jump = 0;
+			DWORD frame_strat_time = GetTickCount();
+			while (peekmessage(&msg)) {
+				if (msg.message == WM_KEYDOWN) {
+					if (msg.vkcode == 0x41) {
+						is_left = true;
+					}
+					else if (msg.vkcode == 0x44) {
+						is_right = true;
+					}
+					else if (msg.vkcode == VK_SPACE && is_jump == 0) {
+						is_jump = 35;
+					}
+				}
+				else if (msg.message == WM_KEYUP) {
+					if (msg.vkcode == 0x41) {
+						is_left = false;
+					}
+					else if (msg.vkcode == 0x44) {
+						is_right = false;
+					}
+				}
+			}
+			if (is_left) {
+				player_x -= player_speed;
+				if (player_x < -30)player_x = -30;
+				last_fx = 1;
+			}
+			if (is_right) {
+				player_x += player_speed;
+				if (!is_o_besave) {
+					if (player_x > 1040) {
+						player_x = 1040;
+						is_right = false;
+						is_o_besave = true;
+						//进行一系列对话
+						for (int i = 0; i < 10; i++) {
+							cleardevice();
+							line(0, 480, 1280, 480);
+							rectangle(1100, 380, 1200, 480);
+							circle(o_x, o_y, o_r);
+							if (last_fx) {
+								putimage_alpha(player_x, player_y, &atlas_player_stand_left[idx_play]);
+							}
+							else {
+								putimage_alpha(player_x, player_y, &atlas_player_stand_right[idx_play]);
+							}
+							putimage_alpha(0, 482, &speak);
+							FlushBatchDraw();
+							while (1) {
+								getmessage(&msg);
+								if (msg.message == WM_KEYDOWN && msg.vkcode == VK_RETURN) {
+									break;
+								}
+							}
+						}
+						cleardevice();
+						putimage(0, 0, &white_all);
+						Sleep(15);
+						FlushBatchDraw();
+						scene_now = 3;
+						continue;
+					}
+				}
+				if (player_x > 1200) {
+					if (is_tonext) {
+						player_x = -30;
+						scene_now = 3;
+					}
+					else {
+						player_x = 1200;
+					}
+				}
+				last_fx = 0;
+			}
+			if (is_jump) {//跳跃
+				player_y -= is_jump - 18;
+				is_jump--;
+			}
+			static int counter = 0;
+			if (++counter % 5 == 0) {//更新程序帧以及动画帧
+				idx_play++;
+			}
+			idx_play %= NUMS;
+			if (o_fx) {
+				o_y -= 1;
+				if (o_y == 300) {
+					o_fx = false;
+				}
+			}
+			else {
+				o_y += 1;
+				if (o_y == 340) {
+					o_fx = true;
+				}
+			}
+			cleardevice();
+			line(0, 480, 1280, 480);
+			if (!is_o_besave) {
+				rectangle(1100, 380, 1200, 480);
+				circle(o_x, o_y, o_r);
+			}
+			if (last_fx) {
+				putimage_alpha(player_x, player_y, &atlas_player_stand_left[idx_play]);
+			}
+			else {
+				putimage_alpha(player_x, player_y, &atlas_player_stand_right[idx_play]);
+			}
+			FlushBatchDraw();
+		}
+		else if (scene_now == 3) {//初战小怪（e）
+			
+			static bool is_left = false;
+			static bool is_right = false;
+			static bool is_attack = false;
+			static bool first_attack = false;
+			static int is_jump = 0;
+			DWORD frame_strat_time = GetTickCount();
+			while (peekmessage(&msg)) {
+				if (msg.message == WM_KEYDOWN) {
+					if (msg.vkcode == 0x41) {
+						is_left = true;
+					}
+					else if (msg.vkcode == 0x44) {
+						is_right = true;
+					}
+					else if (msg.vkcode == VK_SPACE && is_jump == 0) {
+						is_jump = 31;
+					}
+					else if (msg.vkcode == 0x4A) {
+						is_attack = true;
+					}
+				}
+				else if (msg.message == WM_KEYUP) {
+					if (msg.vkcode == 0x41) {
+						is_left = false;
+					}
+					else if (msg.vkcode == 0x44) {
+						is_right = false;
+					}
+					
+				}
+			}
+			if (is_left) {
+				player_x -= player_speed;
+				if (player_x < -50)player_x = -50;
+				last_fx = 1;
+			}
+			if (is_right) {
+				player_x += player_speed;
+				last_fx = 0;
+			}
+			if (is_attack&&oo.attack_form==0) {
+				oo.attack_form = 1;
+				oo.fx_attack = last_fx?true:false;
+			}
+			if (is_jump) {//跳跃
+				player_y -= is_jump - 16;
+				is_jump--;
+			}
+			static int counter = 0;
+			if (++counter % 5 == 0) {//更新程序帧以及动画帧
+				idx_play++;
+			}
+			idx_play %= NUMS;
+			cleardevice();
+			line(0, 480, 1280, 480);
+			if (oo.attack_form==1) {
+				oo.Do_attack();
+			}
+			else if (oo.attack_form==2) {
+				oo.Back(player_x+40,player_y+40);
+				if (oo.attack_form==0) {
+					is_attack =false;
+				}
+			}
+			else if(oo.attack_form==0){
+				oo.With(player_x,player_y,last_fx);
+			}
+			if (last_fx) {
+				putimage_alpha(player_x, player_y, &atlas_player_stand_left[idx_play]);
+			}
+			else {
+				putimage_alpha(player_x, player_y, &atlas_player_stand_right[idx_play]);
+			}
+			oo.o_draw();
+			FlushBatchDraw();
+		}
+		else if (scene_now == 4) {
+
+		}
+		else if (scene_now == 5) {
+
+		}
+		else if (scene_now == 6) {
+
+		}
+		else if (scene_now == 7) {
+
+		}
+		DWORD frame_end_time = GetTickCount();
+		DWORD frame_delte_time = frame_strat_time - frame_end_time;
+		if (frame_delte_time < 1000 / FPS) {
+			Sleep(1000 / FPS - frame_delte_time);
+		}
+	}
+	EndBatchDraw();
+
+	return 0;
+}
